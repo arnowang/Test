@@ -31,6 +31,7 @@ for d in (DATASET_DIR, LORA_DIR, OUTPUT_DIR):
 
 SDXL_MODEL_ID = os.environ.get("SDXL_MODEL_ID", "SG161222/RealVisXL_V5.0")
 SDXL_FALLBACK_ID = "stabilityai/stable-diffusion-xl-base-1.0"
+WAN22_MODEL_ID = os.environ.get("WAN22_MODEL_ID", "Wan-AI/Wan2.2-TI2V-5B-Diffusers")
 COGVIDEO_MODEL_ID = os.environ.get("COGVIDEO_MODEL_ID", "THUDM/CogVideoX-5b-I2V")
 WAN_MODEL_ID = os.environ.get("WAN_MODEL_ID", "Wan-AI/Wan2.1-I2V-14B-480P-Diffusers")
 
@@ -207,7 +208,7 @@ class GPUEngineManager:
         self.loaded_loras = []
         return pipe
 
-    def get_video_pipe(self, engine: str = "cogvideox"):
+    def get_video_pipe(self, engine: str = "wan2.2"):
         target_mode = f"video_{engine}"
         if self.current_mode == target_mode and self.pipe is not None:
             return self.pipe
@@ -215,7 +216,23 @@ class GPUEngineManager:
         gpu = get_gpu_info()
         dtype = torch.bfloat16 if gpu["bf16_supported"] else torch.float16
 
-        if engine == "wan2.1":
+        if engine == "wan2.2":
+            from diffusers import AutoencoderKLWan, WanImageToVideoPipeline
+
+            vae = AutoencoderKLWan.from_pretrained(
+                WAN22_MODEL_ID, subfolder="vae", torch_dtype=torch.float32
+            )
+            pipe = WanImageToVideoPipeline.from_pretrained(
+                WAN22_MODEL_ID,
+                vae=vae,
+                torch_dtype=dtype,
+            )
+            pipe.enable_model_cpu_offload()
+            if hasattr(pipe, "vae") and hasattr(pipe.vae, "enable_tiling"):
+                pipe.vae.enable_tiling()
+            if hasattr(pipe, "vae") and hasattr(pipe.vae, "enable_slicing"):
+                pipe.vae.enable_slicing()
+        elif engine == "wan2.1":
             from diffusers import AutoencoderKLWan, WanImageToVideoPipeline
             from transformers import CLIPVisionModel
 
@@ -232,6 +249,8 @@ class GPUEngineManager:
                 torch_dtype=dtype,
             )
             pipe.enable_model_cpu_offload()
+            if hasattr(pipe, "vae") and hasattr(pipe.vae, "enable_tiling"):
+                pipe.vae.enable_tiling()
         else:
             from diffusers import CogVideoXDPMScheduler, CogVideoXImageToVideoPipeline
 
@@ -511,6 +530,8 @@ def run_generate_image_task(
     lora_scale: float = 0.85,
     num_steps: int = 28,
     seed: Optional[int] = None,
+    width: int = 1152,
+    height: int = 640,
 ):
     try:
         with engine_mgr.lock:
@@ -573,14 +594,14 @@ def run_generate_image_task(
             used_seed = seed if (seed is not None and seed >= 0) else random.randint(1, 2_000_000_000)
             generator = torch.Generator(device="cuda").manual_seed(used_seed)
 
-            update_task(task_id, progress=45, message="正在挂载专属 LoRA 渲染 1024×1024 写实画面...")
+            update_task(task_id, progress=45, message=f"正在挂载专属 LoRA 渲染 {width}×{height} 写实画面...")
             result_img = pipe(
                 prompt=full_prompt,
                 negative_prompt=negative_prompt,
                 num_inference_steps=num_steps,
                 guidance_scale=5.5,
-                width=1024,
-                height=1024,
+                width=width,
+                height=height,
                 generator=generator,
             ).images[0]
 
@@ -607,53 +628,116 @@ def run_generate_image_task(
 
 
 # ============================================================
-# 核心模块 3：写实图生视频（CogVideoX-5B / Wan2.1-14B）
+# 核心模块 3：写实图生视频（Wan2.2-TI2V-5B 24fps / Wan2.1-14B / CogVideoX）
 # ============================================================
+def compute_aligned_size(img: Image.Image, max_area: int, mod_value: int = 32):
+    aspect_ratio = img.height / max(img.width, 1)
+    height = round(np.sqrt(max_area * aspect_ratio)) // mod_value * mod_value
+    width = round(np.sqrt(max_area / max(aspect_ratio, 1e-4))) // mod_value * mod_value
+    height = max(height, mod_value * 8)
+    width = max(width, mod_value * 8)
+    return int(width), int(height)
+
+
 def run_generate_video_task(
     task_id: str,
     pet_id: str,
     image_b64: str,
     motion_prompt: str,
-    video_engine: str = "cogvideox",
-    num_steps: int = 28,
+    video_engine: str = "wan2.2",
+    num_steps: int = 35,
 ):
     try:
         from diffusers.utils import export_to_video
 
         with engine_mgr.lock:
-            engine_label = "Wan2.1-14B 旗舰写实引擎" if video_engine == "wan2.1" else "CogVideoX-5B 极速写实引擎"
+            engine_names = {
+                "wan2.2": "Wan2.2-TI2V-5B 电影级 24fps 引擎",
+                "wan2.1": "Wan2.1-14B 旗舰写实引擎",
+                "cogvideox": "CogVideoX-5B 旧版引擎",
+            }
+            engine_label = engine_names.get(video_engine, "Wan2.2-TI2V-5B 电影级 24fps 引擎")
             update_task(
                 task_id,
                 status="running",
-                progress=12,
-                message=f"正在切换显存并加载 {engine_label}（首次加载需下载权重，请耐心等待）...",
+                progress=10,
+                message=f"正在切换显存并加载 {engine_label}（首次加载需下载权重，约 1~2 分钟）...",
             )
             pipe = engine_mgr.get_video_pipe(video_engine)
             src_img = decode_base64_image(image_b64)
-            en_motion = enrich_prompt(motion_prompt)
-            full_motion_prompt = (
-                f"Photorealistic natural cinematic video, {en_motion}, smooth gentle natural animal movement, "
-                f"soft breeze moving fur gently, warm golden sunlight, stable camera, high fidelity, no distortion"
-            )
 
-            update_task(task_id, progress=40, message=f"正在使用 {engine_label} 渲染写实动态帧...")
             t0 = time.time()
 
-            if video_engine == "wan2.1":
-                input_img = ImageOps.fit(src_img, (832, 480), method=Image.Resampling.LANCZOS)
+            def step_callback(_pipe, step_idx, _timestep, callback_kwargs):
+                pct = 35 + int(55 * ((step_idx + 1) / max(num_steps, 1)))
+                elapsed = int(time.time() - t0)
+                update_task(
+                    task_id,
+                    progress=min(pct, 90),
+                    message=f"正在用 {engine_label} 渲染写实动态帧... ({step_idx + 1}/{num_steps} 步, 已耗时 {elapsed}s)",
+                )
+                return callback_kwargs
+
+            if video_engine == "wan2.2":
+                # Wan2.2 原生支持中英双语 UMT5 编码器，完整保留用户微动描述并强约束解剖结构不畸变
+                mod_val = 32
+                try:
+                    mod_val = pipe.vae_scale_factor_spatial * pipe.transformer.config.patch_size[1]
+                except Exception:
+                    pass
+                w, h = compute_aligned_size(src_img, max_area=960 * 544, mod_value=mod_val)
+                input_img = src_img.resize((w, h), resample=Image.Resampling.LANCZOS)
+
+                full_motion_prompt = (
+                    f"写实电影级自然实拍宠物视频，{motion_prompt}。"
+                    "保持宠物的面部五官、毛色花纹和身体姿态高度一致自然，轻微眨眼呼吸，微风轻拂毛发和草叶，"
+                    "温暖柔和的自然阳光，稳定电影镜头，真实毛发质感，无任何肢体或面部变形。"
+                )
+                negative_prompt = (
+                    "多余的尾巴，凭空长出尾巴，多余的腿，嘴巴融化变形，舌头畸形，眼睛歪斜，面部扭曲，"
+                    "肢体突变，画面撕裂，闪烁，模糊不清，低画质，过曝，静态不动，卡通动漫，3D渲染，"
+                    "extra tail, mutated mouth, deformed face, extra limbs, morphing, distortion, blurry, static"
+                )
+                update_task(task_id, progress=35, message=f"正在使用 {engine_label} 渲染 {w}×{h} 24fps 视频...")
                 output = pipe(
                     image=input_img,
                     prompt=full_motion_prompt,
-                    negative_prompt="blurry, distorted, extra limbs, morphing, low quality, flickering, cartoon",
-                    height=480,
-                    width=832,
-                    num_frames=49,
+                    negative_prompt=negative_prompt,
+                    height=h,
+                    width=w,
+                    num_frames=81,
                     num_inference_steps=num_steps,
                     guidance_scale=5.0,
+                    callback_on_step_end=step_callback,
+                ).frames[0]
+                fps = 24
+            elif video_engine == "wan2.1":
+                w, h = compute_aligned_size(src_img, max_area=832 * 480, mod_value=16)
+                input_img = src_img.resize((w, h), resample=Image.Resampling.LANCZOS)
+                full_motion_prompt = (
+                    f"写实自然实拍宠物视频，{motion_prompt}，保持宠物面部与毛色完全一致，柔和微风，稳定镜头，电影级画质"
+                )
+                update_task(task_id, progress=35, message=f"正在使用 {engine_label} 渲染 {w}×{h} 视频...")
+                output = pipe(
+                    image=input_img,
+                    prompt=full_motion_prompt,
+                    negative_prompt="多余的尾巴，多余的腿，面部畸形，嘴巴扭曲，模糊，闪烁，卡通，extra tail, extra limbs, morphing, blurry",
+                    height=h,
+                    width=w,
+                    num_frames=65,
+                    num_inference_steps=num_steps,
+                    guidance_scale=5.0,
+                    callback_on_step_end=step_callback,
                 ).frames[0]
                 fps = 16
             else:
+                en_motion = enrich_prompt(motion_prompt)
+                full_motion_prompt = (
+                    f"Photorealistic natural cinematic pet video, subtle gentle blinking and soft breathing, "
+                    f"gentle sunlight breeze ruffling fur softly, {en_motion}, stable camera, no extra limbs or tails"
+                )
                 input_img = ImageOps.fit(src_img, (720, 480), method=Image.Resampling.LANCZOS)
+                update_task(task_id, progress=35, message=f"正在使用 {engine_label} 渲染视频...")
                 output = pipe(
                     image=input_img,
                     prompt=full_motion_prompt,
@@ -661,6 +745,7 @@ def run_generate_video_task(
                     num_inference_steps=num_steps,
                     num_frames=49,
                     guidance_scale=6.0,
+                    callback_on_step_end=step_callback,
                 ).frames[0]
                 fps = 8
 
@@ -676,7 +761,7 @@ def run_generate_video_task(
                     [
                         "ffmpeg", "-y", "-i", str(raw_path),
                         "-c:v", "libx264", "-pix_fmt", "yuv420p",
-                        "-crf", "20", "-movflags", "+faststart", str(out_path),
+                        "-crf", "22", "-movflags", "+faststart", str(out_path),
                     ],
                     check=True,
                     stdout=subprocess.DEVNULL,
@@ -731,14 +816,16 @@ class GenerateImageRequest(BaseModel):
     lora_scale: float = 0.85
     num_steps: int = 28
     seed: Optional[int] = None
+    width: int = 1152
+    height: int = 640
 
 
 class GenerateVideoRequest(BaseModel):
     pet_id: str
     image_base64: str
-    motion_prompt: str = "gently wagging tail, blinking softly, breathing peacefully in warm sunlight"
-    video_engine: str = "cogvideox"
-    num_steps: int = 28
+    motion_prompt: str = "在金色阳光下温柔地轻轻眨眼，自然舒缓呼吸，耳朵微微一动，微风轻拂毛发和草叶，镜头极其平缓推进"
+    video_engine: str = "wan2.2"
+    num_steps: int = 35
 
 
 @app.get("/health")
@@ -831,6 +918,8 @@ def api_generate_image(req: GenerateImageRequest):
             req.lora_scale,
             req.num_steps,
             req.seed,
+            req.width,
+            req.height,
         ),
         daemon=True,
     )

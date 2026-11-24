@@ -179,8 +179,11 @@
 
               <div class="form-row">
                 <div class="form-field">
-                  <label>形象还原权重（LoRA Scale: <span id="loraScaleVal">0.85</span>）</label>
-                  <input id="loraScaleInput" type="range" min="0.4" max="1.1" step="0.05" value="0.85" />
+                  <label>画面比例（推荐 16:9 电影宽屏，转视频不裁切）</label>
+                  <select id="aspectRatioSelect">
+                    <option value="1152x640" selected>16:9 宽屏 (1152×640 · 最适合转视频)</option>
+                    <option value="1024x1024">1:1 正方形 (1024×1024 · 拍立得头像)</option>
+                  </select>
                 </div>
                 <div class="form-field">
                   <label>随机种子（留空随机）</label>
@@ -188,7 +191,12 @@
                 </div>
               </div>
 
-              <button id="btnGenImage" class="btn btn-primary btn-block">📸 生成 1024×1024 写实写真</button>
+              <div class="form-field">
+                <label>形象还原权重（LoRA Scale: <span id="loraScaleVal">0.85</span>）</label>
+                <input id="loraScaleInput" type="range" min="0.4" max="1.1" step="0.05" value="0.85" />
+              </div>
+
+              <button id="btnGenImage" class="btn btn-primary btn-block">📸 生成高清写实写真</button>
 
               <hr class="divider" />
 
@@ -196,16 +204,17 @@
               <div class="form-field">
                 <label>视频生成引擎</label>
                 <select id="videoEngineSelect">
-                  <option value="cogvideox" selected>CogVideoX-5B（极速写实 · L4/A100 均流畅，约 45~90s）</option>
-                  <option value="wan2.1">Wan2.1-14B（旗舰写实电影感 · 推荐 A100，约 90~150s）</option>
+                  <option value="wan2.2" selected>Wan2.2-TI2V-5B（推荐 · 24fps 电影级写实，L4 流畅）</option>
+                  <option value="wan2.1">Wan2.1-14B（旗舰大模型 · 推荐 A100）</option>
+                  <option value="cogvideox">CogVideoX-5B（旧版 8fps 对照）</option>
                 </select>
               </div>
               <div class="form-field">
-                <label>动作与微表情描述</label>
+                <label>动作与微表情描述（推荐克制微动，防肢体畸变）</label>
                 <input
                   id="motionPromptInput"
                   type="text"
-                  value="温柔地摇尾巴，轻轻眨眼看向镜头，阳光微风轻拂毛发"
+                  value="在金色阳光下温柔地轻轻眨眼，嘴角自然舒缓呼吸，耳朵微微抖动了一下，微风轻拂毛发和草叶，镜头极其平缓推进"
                 />
               </div>
               <button id="btnGenVideo" class="btn btn-accent btn-block" disabled>

@@ -185,7 +185,7 @@ def poll_colab_task_worker(
     try:
         while True:
             time.sleep(1.5)
-            remote = colab_request(colab_url, f"/api/tasks/{colab_task_id}", method="GET", timeout=30)
+            remote = colab_request(colab_url, f"/api/tasks/{colab_task_id}", method="GET", timeout=180)
             status = remote.get("status", "running")
             LOCAL_TASKS[local_task_id].update(
                 {
@@ -630,6 +630,8 @@ class CutPetHandler(BaseHTTPRequestHandler):
                         "lora_scale": float(body.get("lora_scale", 0.85)),
                         "num_steps": int(body.get("num_steps", 28)),
                         "seed": body.get("seed"),
+                        "width": int(body.get("width", 1152)),
+                        "height": int(body.get("height", 640)),
                     },
                     timeout=60,
                 )
@@ -669,9 +671,9 @@ class CutPetHandler(BaseHTTPRequestHandler):
                 source_url = body.get("source_image_url", "")
                 source_image_id = body.get("source_image_id")
                 motion_prompt = body.get(
-                    "motion_prompt", "gently wagging tail, blinking softly, warm sunlight breeze on fur"
+                    "motion_prompt", "在金色阳光下温柔地轻轻眨眼，自然舒缓呼吸，耳朵微微一动，微风轻拂毛发和草叶，镜头极其缓慢推进"
                 )
-                video_engine = body.get("video_engine", "cogvideox")
+                video_engine = body.get("video_engine", "wan2.2")
 
                 if not source_url.startswith("/data/"):
                     return self._send_json({"error": "无效的首帧图片路径"}, status=400)
@@ -689,7 +691,7 @@ class CutPetHandler(BaseHTTPRequestHandler):
                         "image_base64": img_b64,
                         "motion_prompt": motion_prompt,
                         "video_engine": video_engine,
-                        "num_steps": int(body.get("num_steps", 28)),
+                        "num_steps": int(body.get("num_steps", 35)),
                     },
                     timeout=90,
                 )

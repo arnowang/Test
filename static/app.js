@@ -1,33 +1,33 @@
 const SCENE_PRESETS = [
   {
-    label: "🌿 阳光草坪奔跑",
-    prompt: "happily sitting and playing on a lush sunlit green meadow lawn, wildflowers around, warm golden afternoon light",
-    motion: "温柔地摇尾巴，开心看向镜头，阳光微风轻拂毛发和草叶",
+    label: "🌿 阳光草坪",
+    prompt: "full body resting happily on a lush sunlit green meadow lawn, wildflowers around, warm golden afternoon rim light, wide cinematic framing",
+    motion: "在金色阳光下温柔地轻轻眨眼，嘴角自然舒缓呼吸，耳朵微微抖动了一下，微风轻拂毛发和周围野花草叶，镜头极其缓慢平缓推进",
   },
   {
-    label: "🌅 落日海滩漫步",
-    prompt: "walking peacefully on a golden sandy beach at sunset, gentle ocean waves in soft bokeh background, warm sunset glow on fur",
-    motion: "在金色海滩上轻轻迈步，微风吹动耳朵和毛发，海浪轻柔拍岸",
+    label: "🌅 落日海滩",
+    prompt: "sitting peacefully on a golden sandy beach at sunset, gentle ocean waves in soft bokeh background, warm sunset glow on fur, wide cinematic shot",
+    motion: "温柔地看向镜头轻轻眨眼，金色夕阳微风轻拂毛发，身后柔和的海浪缓慢流动，自然安静呼吸",
   },
   {
     label: "☀️ 午后暖阳窗台",
-    prompt: "relaxing peacefully on a warm cozy wooden windowsill bathed in golden afternoon sunlight, soft curtains, peaceful home atmosphere",
-    motion: "惬意地眯起眼睛晒太阳，胸口均匀舒缓地呼吸，微微转头",
+    prompt: "relaxing peacefully on a warm cozy wooden windowsill bathed in golden afternoon sunlight, soft white curtains, peaceful home atmosphere",
+    motion: "在午后暖阳中惬意地慢慢眯起眼睛，胸口均匀舒缓呼吸，微风吹动窗帘光影轻轻晃动",
   },
   {
     label: "🌸 樱花小径",
-    prompt: "sitting happily on a spring park pathway under blooming pink cherry blossom trees, soft petals floating in the air",
-    motion: "樱花花瓣缓缓飘落，毛孩子抬头好奇张望，轻轻眨眼",
+    prompt: "sitting happily on a spring park pathway under blooming pink cherry blossom trees, soft petals floating in the air, wide natural portrait",
+    motion: "粉色樱花花瓣在微风中缓缓飘落，温柔地轻轻眨眼微微抬头，毛发随微风轻轻拂动",
   },
   {
     label: "❄️ 暖阳雪地",
-    prompt: "standing joyfully in soft fresh white winter snow under warm morning sunshine, crisp realistic fur with tiny snowflakes",
-    motion: "在柔软的雪地里开心摇晃脑袋和尾巴，阳光洒在毛发上",
+    prompt: "resting joyfully in soft fresh white winter snow under warm morning sunshine, crisp realistic fur with tiny snowflakes, natural candid photo",
+    motion: "温暖晨光洒在毛发上，轻轻眨眼自然呼吸，耳朵微微一动，背景细雪缓慢飘落",
   },
   {
     label: "🔥 温暖壁炉小窝",
-    prompt: "curled up comfortably on a soft cream rug beside a warm glowing fireplace in a cozy cabin living room",
-    motion: "在温暖火光映照下安稳打盹呼吸，耳朵微微动了一下",
+    prompt: "curled up comfortably on a soft cream rug beside a warm glowing fireplace in a cozy cabin living room, warm ambient light",
+    motion: "在温暖跳动的壁炉火光映照下安稳舒缓地呼吸打盹，耳朵轻轻动了一下，氛围温馨宁静",
   },
 ];
 
@@ -650,6 +650,7 @@ function init() {
     const activeChip = document.querySelector("#scenePresets .chip.active");
     const sceneLabel = activeChip ? activeChip.textContent : "自定义写实场景";
     const seedVal = $("seedInput").value.trim();
+    const [wStr, hStr] = ($("aspectRatioSelect").value || "1152x640").split("x");
 
     try {
       const res = await apiFetch("/api/generate/image", {
@@ -662,6 +663,8 @@ function init() {
           scene_label: secondPetId ? `双宠合拍 · ${sceneLabel}` : sceneLabel,
           lora_scale: Number($("loraScaleInput").value),
           seed: seedVal ? Number(seedVal) : null,
+          width: Number(wStr) || 1152,
+          height: Number(hStr) || 640,
         }),
       });
       trackTask(res.task_id, `📸 正在渲染 ${pet.name} 的写实写真...`, (record) => {

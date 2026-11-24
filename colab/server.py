@@ -443,13 +443,13 @@ def run_train_lora_task(
                         message=f"正在深度记忆 {pet_name} 的毛发与神态... ({step}/{steps} 步, loss={avg_loss:.4f}, 已耗时 {elapsed}s)",
                     )
 
-            # 4) 导出标准 Diffusers / ComfyUI 通用 .safetensors LoRA 权重（转 fp16 体积减半，下载快 2 倍）
-            update_task(task_id, progress=95, message="训练完成，正在导出轻量 fp16 .safetensors 权重...")
+            # 4) 导出标准 Diffusers / ComfyUI 通用 .safetensors LoRA 权重（剥离 PEFT 的 base_model.model. 前缀并转 fp16）
+            update_task(task_id, progress=95, message="训练完成，正在导出标准轻量 fp16 .safetensors 权重...")
             raw_lora_sd = convert_state_dict_to_diffusers(get_peft_model_state_dict(unet))
-            unet_lora_state_dict = {
-                k: (v.to(torch.float16) if torch.is_floating_point(v) else v)
-                for k, v in raw_lora_sd.items()
-            }
+            unet_lora_state_dict = {}
+            for k, v in raw_lora_sd.items():
+                clean_k = k.replace("base_model.model.", "")
+                unet_lora_state_dict[clean_k] = v.to(torch.float16) if torch.is_floating_point(v) else v
             lora_filename = f"{pet_id}.safetensors"
             StableDiffusionXLPipeline.save_lora_weights(
                 save_directory=str(LORA_DIR),
@@ -480,6 +480,22 @@ def run_train_lora_task(
     except Exception as e:
         traceback.print_exc()
         update_task(task_id, status="failed", message=f"训练失败: {str(e)}", error=traceback.format_exc())
+
+
+def load_clean_lora_sd(lora_path: Path) -> Dict[str, torch.Tensor]:
+    """加载 .safetensors 并自动清洗历史残留的 base_model.model. 前缀，兼容 Diffusers/ComfyUI"""
+    from safetensors.torch import load_file, save_file
+
+    sd = load_file(str(lora_path))
+    needs_clean = any("base_model.model." in k for k in sd.keys())
+    if needs_clean:
+        cleaned = {k.replace("base_model.model.", ""): v for k, v in sd.items()}
+        try:
+            save_file(cleaned, str(lora_path))
+        except Exception:
+            pass
+        return cleaned
+    return sd
 
 
 # ============================================================
@@ -514,7 +530,7 @@ def run_generate_image_task(
             en_desc1 = enrich_prompt(pet_desc)
 
             if lora1.exists():
-                pipe.load_lora_weights(str(LORA_DIR), weight_name=lora1.name, adapter_name="pet1")
+                pipe.load_lora_weights(load_clean_lora_sd(lora1), adapter_name="pet1")
                 adapters.append("pet1")
 
             if second_pet_id:
@@ -522,7 +538,7 @@ def run_generate_image_task(
                 trigger2 = f"sks_{second_pet_id[:8]}"
                 en_desc2 = enrich_prompt(second_pet_desc or "")
                 if lora2.exists():
-                    pipe.load_lora_weights(str(LORA_DIR), weight_name=lora2.name, adapter_name="pet2")
+                    pipe.load_lora_weights(load_clean_lora_sd(lora2), adapter_name="pet2")
                     adapters.append("pet2")
                 if len(adapters) == 2:
                     weights = [min(lora_scale, 0.72), min(lora_scale, 0.72)]

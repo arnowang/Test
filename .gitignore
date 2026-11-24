@@ -1,0 +1,16 @@
+# 本地私人数据与生成媒体（绝对不上传）
+data/
+*.safetensors
+*.part
+*.mp4
+*.png
+*.jpg
+*.jpeg
+*.webp
+
+# Python 与系统垃圾文件
+__pycache__/
+*.pyc
+.DS_Store
+.env
+*.log

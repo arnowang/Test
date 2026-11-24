@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>🌈 CutPet 彩虹小院 · 写实宠物数字重生测试 Demo</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <!-- 顶部导航 & Colab GPU 连接栏 -->
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-icon">🌈</span>
+      <div>
+        <h1>CutPet 彩虹小院</h1>
+        <p class="subtitle">路线 B 写实测试 Demo · 专属 LoRA + 图生视频</p>
+      </div>
+    </div>
+
+    <div class="colab-bar">
+      <div id="colabStatusDot" class="status-dot offline" title="Colab GPU 状态"></div>
+      <input
+        id="colabUrlInput"
+        type="url"
+        placeholder="粘贴 Google Colab 输出的 https://xxxx.trycloudflare.com 地址"
+      />
+      <button id="btnConnectColab" class="btn btn-primary btn-sm">连接 GPU</button>
+      <span id="colabStatusText" class="status-text">未连接</span>
+    </div>
+  </header>
+
+  <!-- 本地保存路径提示条 -->
+  <div class="storage-banner">
+    <span>📁 原始照片、写实写真与视频自动保存至本地：</span>
+    <code id="storagePathText">/Users/arnowang/Downloads/cutpet/data</code>
+    <span>｜☁️ 专属 LoRA 权重秒存至 Google Drive（<code>MyDrive/CutPet_Test/loras</code>），无需慢速下载</span>
+  </div>
+
+  <!-- 主布局 -->
+  <main class="layout">
+    <!-- 左侧：毛孩子档案列表 -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <h2>🐾 毛孩子档案</h2>
+        <button id="btnOpenNewPet" class="btn btn-accent btn-sm">+ 新建档案</button>
+      </div>
+      <div id="petList" class="pet-list">
+        <div class="empty-hint">还没有毛孩子档案，点击上方「+ 新建档案」上传照片开始测试吧。</div>
+      </div>
+    </aside>
+
+    <!-- 右侧：主工作区 -->
+    <section class="workspace">
+      <!-- 全局任务实时进度条 -->
+      <div id="taskBanner" class="task-banner hidden">
+        <div class="task-banner-top">
+          <strong id="taskTitle">正在处理任务...</strong>
+          <span id="taskPercent">0%</span>
+        </div>
+        <div class="progress-track">
+          <div id="taskProgressBar" class="progress-fill" style="width: 0%"></div>
+        </div>
+        <p id="taskMessage" class="task-msg">请稍候...</p>
+      </div>
+
+      <!-- 未选中宠物时的引导页 -->
+      <div id="emptyWorkspace" class="card welcome-card">
+        <div class="welcome-emoji">☀️🐾</div>
+        <h2>欢迎来到彩虹小院（写实测试 Demo）</h2>
+        <p>只需 3 步，用你的 Google Colab Pro 免费算力验证最核心的<strong>宠物形象写实还原</strong>：</p>
+        <ol class="guide-steps">
+          <li><strong>连接 Colab GPU</strong>：将 <code>colab/pet_lora_mvp_server.ipynb</code> 上传至 Colab Pro（推荐 A100/L4）运行，把输出的公网地址填到右上角。</li>
+          <li><strong>上传照片并训练专属 LoRA</strong>：点击左侧「+ 新建档案」上传 3~15 张毛孩子照片，点击「唤醒专属形象」训练并自动备份到本地。</li>
+          <li><strong>生成写实场景与动态视频</strong>：选择草坪/海边/窗台等场景出图（支持单宠或双宠一起玩耍），一键让它动起来！</li>
+        </ol>
+        <button id="btnWelcomeCreate" class="btn btn-primary">立即创建第一只毛孩子档案</button>
+      </div>
+
+      <!-- 选中宠物后的完整工作区 -->
+      <div id="petWorkspace" class="hidden">
+        <!-- 宠物信息头 -->
+        <div class="card pet-hero">
+          <img id="heroAvatar" class="hero-avatar" src="" alt="宠物头像" />
+          <div class="hero-info">
+            <div class="hero-title-row">
+              <h2 id="heroName">毛孩子</h2>
+              <span id="heroLoraBadge" class="badge badge-warn">未唤醒专属 LoRA</span>
+            </div>
+            <p id="heroMeta" class="hero-meta"></p>
+            <p id="heroFeatures" class="hero-features"></p>
+          </div>
+          <div class="hero-actions">
+            <button id="btnDeletePet" class="btn btn-ghost btn-sm" title="删除此测试档案">删除档案</button>
+          </div>
+        </div>
+
+        <!-- Tabs -->
+        <nav class="tabs">
+          <button class="tab active" data-tab="tabWakeup">✨ 1. 专属形象唤醒（LoRA）</button>
+          <button class="tab" data-tab="tabStudio">🌿 2. 写实工坊 &amp; 虚拟小院</button>
+          <button class="tab" data-tab="tabGallery">🎞️ 3. 本地时光画廊</button>
+        </nav>
+
+        <!-- Tab 1: LoRA 唤醒 -->
+        <div id="tabWakeup" class="tab-panel active">
+          <div class="card">
+            <div class="section-header">
+              <div>
+                <h3>📸 训练用原始照片（建议 5~12 张不同角度清晰照）</h3>
+                <p class="muted">照片越多角度越丰富，花纹、耳朵和眼神还原度越高。</p>
+              </div>
+              <label class="btn btn-outline btn-sm upload-btn">
+                + 追加上传照片
+                <input id="inputAppendPhotos" type="file" accept="image/*" multiple hidden />
+              </label>
+            </div>
+            <div id="petPhotosGrid" class="photo-grid"></div>
+          </div>
+
+          <div class="card">
+            <h3>🧬 路线 B：训练单宠专属写实 LoRA（RealVisXL V5.0）</h3>
+            <p class="muted">
+              训练将在你的 Google Colab Pro GPU 上运行，完成后直接 1 秒保存为轻量 <code>fp16 .safetensors</code> 权重到你的 <strong>Google Drive</strong>（重启不丢失、无需慢速下载回本地，训练完即可直接生图与生成视频）。
+            </p>
+            <div class="form-row">
+              <div class="form-field">
+                <label>训练精细度（Steps）</label>
+                <select id="trainStepsSelect">
+                  <option value="300">快速验证（300 步 · A100 约 1.5 分钟）</option>
+                  <option value="450" selected>推荐写实（450 步 · A100 约 2.5 分钟）</option>
+                  <option value="650">高精还原（650 步 · 复杂花纹推荐）</option>
+                </select>
+              </div>
+              <div class="form-field">
+                <label>LoRA 维度（Rank）</label>
+                <select id="trainRankSelect">
+                  <option value="16" selected>Rank 16（均衡推荐，约 50MB）</option>
+                  <option value="32">Rank 32（细节更强，约 100MB）</option>
+                </select>
+              </div>
+              <div class="form-field align-end">
+                <button id="btnStartTrain" class="btn btn-primary btn-lg">✨ 开始唤醒专属形象</button>
+              </div>
+            </div>
+            <div id="loraLocalInfo" class="info-box hidden"></div>
+          </div>
+        </div>
+
+        <!-- Tab 2: 写实场景工坊 & 虚拟小院 -->
+        <div id="tabStudio" class="tab-panel">
+          <div class="studio-grid">
+            <!-- 左侧控制台 -->
+            <div class="card studio-controls">
+              <h3>🎨 第一步：生成写实场景首帧</h3>
+
+              <div class="mode-switch">
+                <button id="modeSingleBtn" class="mode-btn active">单宠日常</button>
+                <button id="modeDualBtn" class="mode-btn">🐾 双宠一起玩耍</button>
+              </div>
+
+              <div id="secondPetBox" class="form-field hidden">
+                <label>选择一起玩耍的小伙伴（好友宠物）</label>
+                <select id="secondPetSelect"></select>
+              </div>
+
+              <div class="form-field">
+                <label>快捷写实场景预设</label>
+                <div id="scenePresets" class="preset-chips"></div>
+              </div>
+
+              <div class="form-field">
+                <label>场景与动作描述（支持中英文）</label>
+                <textarea
+                  id="scenePromptInput"
+                  rows="3"
+                  placeholder="例如：在阳光温暖的绿色草坪上开心奔跑，微风吹动毛发，金色夕阳逆光..."
+                ></textarea>
+              </div>
+
+              <div class="form-row">
+                <div class="form-field">
+                  <label>形象还原权重（LoRA Scale: <span id="loraScaleVal">0.85</span>）</label>
+                  <input id="loraScaleInput" type="range" min="0.4" max="1.1" step="0.05" value="0.85" />
+                </div>
+                <div class="form-field">
+                  <label>随机种子（留空随机）</label>
+                  <input id="seedInput" type="number" placeholder="自动随机" />
+                </div>
+              </div>
+
+              <button id="btnGenImage" class="btn btn-primary btn-block">📸 生成 1024×1024 写实写真</button>
+
+              <hr class="divider" />
+
+              <h3>🎬 第二步：让它动起来（写实图生视频）</h3>
+              <div class="form-field">
+                <label>视频生成引擎</label>
+                <select id="videoEngineSelect">
+                  <option value="cogvideox" selected>CogVideoX-5B（极速写实 · L4/A100 均流畅，约 45~90s）</option>
+                  <option value="wan2.1">Wan2.1-14B（旗舰写实电影感 · 推荐 A100，约 90~150s）</option>
+                </select>
+              </div>
+              <div class="form-field">
+                <label>动作与微表情描述</label>
+                <input
+                  id="motionPromptInput"
+                  type="text"
+                  value="温柔地摇尾巴，轻轻眨眼看向镜头，阳光微风轻拂毛发"
+                />
+              </div>
+              <button id="btnGenVideo" class="btn btn-accent btn-block" disabled>
+                ✨ 将右侧写真转为写实小视频
+              </button>
+            </div>
+
+            <!-- 右侧预览 & 虚拟小院互动舞台 -->
+            <div class="card studio-stage">
+              <div class="stage-header">
+                <h3>🏡 彩虹小院实时视窗</h3>
+                <span id="stageCaption" class="muted">生成写真或视频后将在此展示</span>
+              </div>
+
+              <div id="stageViewport" class="stage-viewport">
+                <div id="stagePlaceholder" class="stage-placeholder">
+                  <span>🌅</span>
+                  <p>在左侧选一个场景，生成毛孩子在彩虹星的第一张写实照片或动态视频</p>
+                </div>
+                <img id="stageImage" class="stage-media hidden" src="" alt="写实写真预览" />
+                <video id="stageVideo" class="stage-media hidden" autoplay loop muted playsinline controls></video>
+                <div id="floatHeartLayer" class="float-layer"></div>
+              </div>
+
+              <!-- 轻量互动条（模拟小程序小院互动） -->
+              <div class="interact-bar">
+                <button class="btn btn-soft btn-sm" data-interact="pet">🤚 摸摸头</button>
+                <button class="btn btn-soft btn-sm" data-interact="treat">🍖 投喂小零食</button>
+                <button class="btn btn-soft btn-sm" data-interact="flower">🌼 送一朵小花</button>
+                <span id="interactToast" class="interact-toast"></span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab 3: 本地时光画廊 -->
+        <div id="tabGallery" class="tab-panel">
+          <div class="card">
+            <div class="section-header">
+              <h3>🎞️ 已保存到本地的写实作品</h3>
+              <div class="filter-group">
+                <button class="btn btn-sm btn-soft active" data-filter="all">全部</button>
+                <button class="btn btn-sm btn-soft" data-filter="video">仅视频</button>
+                <button class="btn btn-sm btn-soft" data-filter="image">仅写真</button>
+              </div>
+            </div>
+            <div id="galleryGrid" class="gallery-grid"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- 新建宠物弹窗 -->
+  <div id="modalNewPet" class="modal hidden">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content card">
+      <div class="modal-header">
+        <h3>🐾 创建毛孩子数字档案</h3>
+        <button id="btnCloseModal" class="btn-icon-close">&times;</button>
+      </div>
+      <div class="form-field">
+        <label>宠物昵称 *</label>
+        <input id="newPetName" type="text" placeholder="例如：豆豆 / 咪咪 / 球球" />
+      </div>
+      <div class="form-row">
+        <div class="form-field">
+          <label>品种 *</label>
+          <input id="newPetBreed" type="text" placeholder="例如：三花猫 / 金毛 / 柯基 / 柴犬" />
+        </div>
+        <div class="form-field">
+          <label>生前性格标签</label>
+          <input id="newPetPersonality" type="text" placeholder="例如：粘人、贪吃、爱晒太阳" />
+        </div>
+      </div>
+      <div class="form-field">
+        <label>外貌与花纹特征（帮助 AI 精准记住它的独特印记）</label>
+        <input
+          id="newPetFeatures"
+          type="text"
+          placeholder="例如：橘白相间、白手套、粉鼻头、绿眼睛、长毛蓬松尾巴"
+        />
+      </div>
+      <div class="form-field">
+        <label>上传宠物照片（建议 3~12 张清晰照片，自动存至本地文件夹）*</label>
+        <div id="dropZone" class="drop-zone">
+          <p>点击选择或将照片拖拽到这里（支持 JPG / PNG / WebP 多选）</p>
+          <input id="newPetPhotosInput" type="file" accept="image/*" multiple hidden />
+        </div>
+        <div id="newPetPreviewGrid" class="photo-grid mini"></div>
+      </div>
+      <div class="modal-footer">
+        <button id="btnCancelModal" class="btn btn-ghost">取消</button>
+        <button id="btnSubmitNewPet" class="btn btn-primary">保存档案到本地</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

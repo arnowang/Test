@@ -198,7 +198,10 @@ class GPUEngineManager:
             pipe.scheduler.config, use_karras_sigmas=True
         )
         pipe.to("cuda")
-        pipe.enable_vae_slicing()
+        if hasattr(pipe, "vae") and hasattr(pipe.vae, "enable_slicing"):
+            pipe.vae.enable_slicing()
+        if hasattr(pipe, "vae") and hasattr(pipe.vae, "enable_tiling"):
+            pipe.vae.enable_tiling()
         self.pipe = pipe
         self.current_mode = "sdxl"
         self.loaded_loras = []
@@ -240,8 +243,10 @@ class GPUEngineManager:
                 pipe.scheduler.config, timestep_spacing="trailing"
             )
             pipe.enable_model_cpu_offload()
-            pipe.vae.enable_slicing()
-            pipe.vae.enable_tiling()
+            if hasattr(pipe, "vae") and hasattr(pipe.vae, "enable_slicing"):
+                pipe.vae.enable_slicing()
+            if hasattr(pipe, "vae") and hasattr(pipe.vae, "enable_tiling"):
+                pipe.vae.enable_tiling()
 
         self.pipe = pipe
         self.current_mode = target_mode
